@@ -1,11 +1,33 @@
-import type { ArrayHeaderInfo, Depth, JsonArray, JsonObject, JsonPrimitive, JsonValue, ParsedLine, ResolvedDecodeOptions } from '../types'
+import type {
+  ArrayHeaderInfo,
+  Depth,
+  JsonArray,
+  JsonObject,
+  JsonPrimitive,
+  JsonValue,
+  ParsedLine,
+  ResolvedDecodeOptions,
+} from '../types'
 import type { ObjectWithQuotedKeys } from './expand'
 import type { LineCursor } from './scanner'
 import { COLON, DEFAULT_DELIMITER, DOT, LIST_ITEM_PREFIX } from '../constants'
 import { findClosingQuote } from '../shared/string-utils'
 import { QUOTED_KEY_MARKER } from './expand'
-import { isArrayHeaderAfterHyphen, isObjectFirstFieldAfterHyphen, mapRowValuesToPrimitives, parseArrayHeaderLine, parseDelimitedValues, parseKeyToken, parsePrimitiveToken } from './parser'
-import { assertExpectedCount, validateNoBlankLinesInRange, validateNoExtraListItems, validateNoExtraTabularRows } from './validation'
+import {
+  isArrayHeaderAfterHyphen,
+  isObjectFirstFieldAfterHyphen,
+  mapRowValuesToPrimitives,
+  parseArrayHeaderLine,
+  parseDelimitedValues,
+  parseKeyToken,
+  parsePrimitiveToken,
+} from './parser'
+import {
+  assertExpectedCount,
+  validateNoBlankLinesInRange,
+  validateNoExtraListItems,
+  validateNoExtraTabularRows,
+} from './validation'
 
 // #region Entry decoding
 
@@ -13,6 +35,17 @@ export function decodeValueFromLines(cursor: LineCursor, options: ResolvedDecode
   const first = cursor.peek()
   if (!first) {
     throw new ReferenceError('No content to decode')
+  }
+
+  const trimmed = first.content.trim()
+
+  // LOON-OBJ single-line syntax:
+  //   type::key:value;key2:value2;...
+  //
+  // We detect this *before* normal TOON logic.
+  // Pattern: leading identifier (type) followed by "::".
+  if (/^[A-Za-z0-9_.-]+::/.test(trimmed)) {
+    return decodeLoonObject(trimmed)
   }
 
   // Check for root array
@@ -90,7 +123,7 @@ function decodeObject(cursor: LineCursor, baseDepth: Depth, options: ResolvedDec
 
   // Attach quoted key metadata if any were found
   if (quotedKeys.size > 0) {
-    (obj as ObjectWithQuotedKeys)[QUOTED_KEY_MARKER] = quotedKeys
+    ;(obj as ObjectWithQuotedKeys)[QUOTED_KEY_MARKER] = quotedKeys
   }
 
   return obj
@@ -101,7 +134,7 @@ function decodeKeyValue(
   cursor: LineCursor,
   baseDepth: Depth,
   options: ResolvedDecodeOptions,
-): { key: string, value: JsonValue, followDepth: Depth, isQuoted: boolean } {
+): { key: string; value: JsonValue; followDepth: Depth; isQuoted: boolean } {
   // Check for array header first (before parsing key)
   const arrayHeader = parseArrayHeaderLine(content, DEFAULT_DELIMITER)
   if (arrayHeader && arrayHeader.header.key) {
@@ -402,7 +435,63 @@ function decodeObjectFromListItem(
 
   // Attach quoted key metadata if any were found
   if (quotedKeys.size > 0) {
-    (obj as ObjectWithQuotedKeys)[QUOTED_KEY_MARKER] = quotedKeys
+    ;(obj as ObjectWithQuotedKeys)[QUOTED_KEY_MARKER] = quotedKeys
+  }
+
+  return obj
+}
+
+// #endregion
+
+// #region LOON-OBJ decoding
+
+/**
+ * Decode a single-line LOON-OBJ record:
+ *   type::key:value;key2:value2;...
+ *
+ * - "type" is stored under the "type" property.
+ * - values with "|" are decoded as arrays of primitives.
+ * - other values are parsed via parsePrimitiveToken.
+ */
+function decodeLoonObject(line: string): JsonObject {
+  const [typePart, kvPart] = line.split('::', 2)
+  if (!kvPart) {
+    throw new SyntaxError('Invalid LOON-OBJ: missing "::" separator')
+  }
+
+  const obj: JsonObject = {}
+  obj.type = typePart
+
+  const raw = kvPart.trim()
+  if (!raw) {
+    return obj
+  }
+
+  const fields = raw.split(';').filter(Boolean)
+
+  for (const field of fields) {
+    const idx = field.indexOf(':')
+    if (idx === -1) {
+      throw new SyntaxError(`Invalid LOON-OBJ field: "${field}" (missing ":")`)
+    }
+
+    const key = field.slice(0, idx).trim()
+    const rawValue = field.slice(idx + 1).trim()
+
+    if (!rawValue) {
+      // Empty value → empty string (could also be null, ma teniamo semplice)
+      obj[key] = ''
+      continue
+    }
+
+    // Lists: v1|v2|v3
+    if (rawValue.includes('|')) {
+      const parts = rawValue.split('|').map(p => parsePrimitiveToken(p.trim()))
+      obj[key] = parts
+    }
+    else {
+      obj[key] = parsePrimitiveToken(rawValue)
+    }
   }
 
   return obj
