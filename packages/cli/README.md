@@ -125,6 +125,8 @@ users::id:2;name:Bob;email:bob@mail;role:user;age:27;flags:4;scores:7|9
 
 Record layout automatically falls back to the standard format when rows contain complex nested structures that cannot be flattened without loss.
 
+The CLI (and core library) detect this layout during decoding, rebuilding the original arrays of objects with proper primitive and inline array values—no special flags required when running `toon --decode`.
+
 ### Lenient Decoding
 
 Skip validation for faster processing:

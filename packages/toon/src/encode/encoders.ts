@@ -343,6 +343,8 @@ function encodeRecordPrimitive(value: JsonPrimitive, options: ResolvedEncodeOpti
   if (typeof value === 'string') {
     if (value.includes(';'))
       return encodeStringLiteral(value, ';')
+    if (value.includes(','))
+      return encodeStringLiteral(value, ',')
 
     return encodeStringLiteral(value, delimiter)
   }

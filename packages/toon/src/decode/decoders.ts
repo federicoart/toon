@@ -1,8 +1,8 @@
-import type { ArrayHeaderInfo, Depth, JsonArray, JsonObject, JsonPrimitive, JsonValue, ParsedLine, ResolvedDecodeOptions } from '../types'
+import type { ArrayHeaderInfo, Delimiter, Depth, JsonArray, JsonObject, JsonPrimitive, JsonValue, ParsedLine, ResolvedDecodeOptions } from '../types'
 import type { ObjectWithQuotedKeys } from './expand'
 import type { LineCursor } from './scanner'
-import { COLON, DEFAULT_DELIMITER, DOT, LIST_ITEM_PREFIX } from '../constants'
-import { findClosingQuote } from '../shared/string-utils'
+import { COLON, DEFAULT_DELIMITER, DELIMITERS, DOT, DOUBLE_QUOTE, LIST_ITEM_PREFIX } from '../constants'
+import { findClosingQuote, unescapeString } from '../shared/string-utils'
 import { QUOTED_KEY_MARKER } from './expand'
 import { isArrayHeaderAfterHyphen, isObjectFirstFieldAfterHyphen, mapRowValuesToPrimitives, parseArrayHeaderLine, parseDelimitedValues, parseKeyToken, parsePrimitiveToken } from './parser'
 import { assertExpectedCount, validateNoBlankLinesInRange, validateNoExtraListItems, validateNoExtraTabularRows } from './validation'
@@ -73,6 +73,18 @@ function decodeObject(cursor: LineCursor, baseDepth: Depth, options: ResolvedDec
     }
 
     if (line.depth === computedDepth) {
+      const recordResult = decodeRecordSequence(cursor, computedDepth)
+      if (recordResult) {
+        const { key, value, isQuoted } = recordResult
+        obj[key] = value
+
+        if (isQuoted && key.includes(DOT)) {
+          quotedKeys.add(key)
+        }
+
+        continue
+      }
+
       cursor.advance()
       const { key, value, isQuoted } = decodeKeyValue(line.content, cursor, computedDepth, options)
       obj[key] = value
@@ -133,6 +145,268 @@ function decodeKeyValue(
   // Inline primitive value
   const decodedValue = parsePrimitiveToken(rest)
   return { key, value: decodedValue, followDepth: baseDepth + 1, isQuoted }
+}
+
+// #endregion
+
+// #region Record layout decoding
+
+type ParsedRecordLine = {
+  key: string
+  isQuoted: boolean
+  fields: readonly { key: string, raw: string }[]
+}
+
+type RecordFieldDescriptor = {
+  kind: 'unknown' | 'primitive' | 'array'
+  delimiter?: Delimiter
+}
+
+function decodeRecordSequence(cursor: LineCursor, depth: Depth): { key: string, value: JsonArray, isQuoted: boolean } | undefined {
+  const line = cursor.peek()
+  if (!line || line.depth !== depth)
+    return undefined
+
+  const parsed = parseRecordLine(line.content)
+  if (!parsed)
+    return undefined
+
+  cursor.advance()
+
+  const headerKeys = parsed.fields.map(field => field.key)
+  if (headerKeys.length === 0) {
+    throw new SyntaxError('Record line must contain at least one field')
+  }
+
+  const descriptors = new Map<string, RecordFieldDescriptor>()
+  updateRecordDescriptors(descriptors, parsed.fields)
+
+  const rawRows: string[][] = [parsed.fields.map(field => field.raw)]
+
+  while (!cursor.atEnd()) {
+    const next = cursor.peek()
+    if (!next || next.depth !== depth)
+      break
+
+    const nextParsed = parseRecordLine(next.content)
+    if (!nextParsed || nextParsed.key !== parsed.key || nextParsed.isQuoted !== parsed.isQuoted)
+      break
+
+    cursor.advance()
+
+    if (nextParsed.fields.length !== headerKeys.length) {
+      throw new SyntaxError(`Record rows for "${parsed.key}" must contain ${headerKeys.length} fields`)
+    }
+
+    for (let i = 0; i < headerKeys.length; i++) {
+      const expectedKey = headerKeys[i]!
+      const actualKey = nextParsed.fields[i]!.key
+      if (actualKey !== expectedKey) {
+        throw new SyntaxError(`Record rows for "${parsed.key}" must use a consistent field order`)
+      }
+    }
+
+    rawRows.push(nextParsed.fields.map(field => field.raw))
+    updateRecordDescriptors(descriptors, nextParsed.fields)
+  }
+
+  finalizeRecordDescriptors(descriptors)
+
+  const rows: JsonObject[] = rawRows.map(values => {
+    const row: JsonObject = {}
+
+    for (let i = 0; i < headerKeys.length; i++) {
+      const fieldKey = headerKeys[i]!
+      const descriptor = descriptors.get(fieldKey)
+      if (!descriptor) {
+        throw new SyntaxError(`Missing descriptor for record field "${fieldKey}"`)
+      }
+
+      const rawValue = values[i] ?? ''
+      row[fieldKey] = decodeRecordFieldValue(rawValue, descriptor)
+    }
+
+    return row
+  })
+
+  return { key: parsed.key, value: rows, isQuoted: parsed.isQuoted }
+}
+
+function parseRecordLine(content: string): ParsedRecordLine | undefined {
+  const trimmed = content.trim()
+  if (!trimmed)
+    return undefined
+
+  const prefix = parseRecordPrefix(trimmed)
+  if (!prefix)
+    return undefined
+
+  const segments = splitRecordSegments(trimmed.slice(prefix.end))
+  if (segments.length === 0)
+    return undefined
+
+  const fields = segments.map(segment => {
+    const { key, end } = parseKeyToken(segment, 0)
+    const raw = segment.slice(end).trim()
+    return { key, raw }
+  })
+
+  return { key: prefix.key, isQuoted: prefix.isQuoted, fields }
+}
+
+function parseRecordPrefix(content: string): { key: string, end: number, isQuoted: boolean } | undefined {
+  if (!content.includes('::'))
+    return undefined
+
+  if (content.startsWith(DOUBLE_QUOTE)) {
+    const closingQuoteIndex = findClosingQuote(content, 0)
+    if (closingQuoteIndex === -1)
+      return undefined
+
+    const separatorIndex = closingQuoteIndex + 1
+    if (content.slice(separatorIndex, separatorIndex + 2) !== '::')
+      return undefined
+
+    const key = unescapeString(content.slice(1, closingQuoteIndex))
+    return { key, end: separatorIndex + 2, isQuoted: true }
+  }
+
+  const separatorIndex = content.indexOf('::')
+  if (separatorIndex <= 0)
+    return undefined
+
+  const key = content.slice(0, separatorIndex).trim()
+  if (!key)
+    return undefined
+
+  return { key, end: separatorIndex + 2, isQuoted: false }
+}
+
+function splitRecordSegments(content: string): string[] {
+  const segments: string[] = []
+  let buffer = ''
+  let inQuotes = false
+  let i = 0
+
+  while (i < content.length) {
+    const char = content[i]
+
+    if (char === '\\' && inQuotes && i + 1 < content.length) {
+      buffer += char + content[i + 1]
+      i += 2
+      continue
+    }
+
+    if (char === DOUBLE_QUOTE) {
+      inQuotes = !inQuotes
+      buffer += char
+      i++
+      continue
+    }
+
+    if (char === ';' && !inQuotes) {
+      segments.push(buffer.trim())
+      buffer = ''
+      i++
+      continue
+    }
+
+    buffer += char
+    i++
+  }
+
+  if (buffer)
+    segments.push(buffer.trim())
+
+  return segments
+}
+
+function updateRecordDescriptors(descriptors: Map<string, RecordFieldDescriptor>, fields: readonly { key: string, raw: string }[]): void {
+  for (const field of fields) {
+    const trimmed = field.raw.trim()
+    const descriptor = descriptors.get(field.key) ?? { kind: 'unknown' as const }
+
+    const detectedDelimiter = detectRecordDelimiter(trimmed)
+
+    if (trimmed === '') {
+      descriptor.kind = 'array'
+    }
+    else if (detectedDelimiter) {
+      descriptor.kind = 'array'
+      if (descriptor.delimiter && descriptor.delimiter !== detectedDelimiter) {
+        throw new SyntaxError(`Record field "${field.key}" uses conflicting delimiters`)
+      }
+      descriptor.delimiter = descriptor.delimiter ?? detectedDelimiter
+    }
+    else if (descriptor.kind !== 'array') {
+      descriptor.kind = 'primitive'
+    }
+
+    descriptors.set(field.key, descriptor)
+  }
+}
+
+function finalizeRecordDescriptors(descriptors: Map<string, RecordFieldDescriptor>): void {
+  for (const descriptor of descriptors.values()) {
+    if (descriptor.kind === 'unknown')
+      descriptor.kind = 'primitive'
+  }
+}
+
+function decodeRecordFieldValue(raw: string, descriptor: RecordFieldDescriptor): JsonValue {
+  const trimmed = raw.trim()
+
+  if (descriptor.kind === 'array') {
+    if (!trimmed)
+      return []
+
+    const delimiter = descriptor.delimiter
+    if (delimiter && containsDelimiterOutsideQuotes(trimmed, delimiter)) {
+      const values = parseDelimitedValues(trimmed, delimiter)
+      return mapRowValuesToPrimitives(values)
+    }
+
+    return [parsePrimitiveToken(trimmed)]
+  }
+
+  return parsePrimitiveToken(trimmed)
+}
+
+function detectRecordDelimiter(raw: string): Delimiter | undefined {
+  if (!raw)
+    return undefined
+
+  for (const delimiter of [DELIMITERS.tab, DELIMITERS.pipe, DELIMITERS.comma] as const) {
+    if (containsDelimiterOutsideQuotes(raw, delimiter)) {
+      return delimiter
+    }
+  }
+
+  return undefined
+}
+
+function containsDelimiterOutsideQuotes(value: string, delimiter: Delimiter): boolean {
+  let inQuotes = false
+
+  for (let i = 0; i < value.length; i++) {
+    const char = value[i]
+
+    if (char === '\\' && inQuotes) {
+      i++
+      continue
+    }
+
+    if (char === DOUBLE_QUOTE) {
+      inQuotes = !inQuotes
+      continue
+    }
+
+    if (char === delimiter && !inQuotes) {
+      return true
+    }
+  }
+
+  return false
 }
 
 // #endregion

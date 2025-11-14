@@ -217,6 +217,42 @@ describe('toon CLI', () => {
         await context.cleanup()
       }
     })
+
+    it('decodes compact record layout back to JSON', async () => {
+      const toonInput = [
+        'users::id:1;name:Alice;email:alice@mail;role:admin;age:32;flags:12;scores:10|11|12',
+        'users::id:2;name:Bob;email:bob@mail;role:user;age:27;flags:4;scores:7|9',
+        'orders::id:101;userId:1;total:129.9;status:paid;items:4|3|1',
+        'orders::id:102;userId:2;total:39.9;status:pending;items:2|2',
+        'orders::id:103;userId:3;total:560;status:paid;items:10|20|30',
+        'orders::id:104;userId:5;total:79.99;status:shipped;items:1',
+      ].join('\n')
+
+      const context = await createCliTestContext({
+        'input.toon': toonInput,
+      })
+
+      try {
+        await context.run(['input.toon', '--decode', '--output', 'output.json'])
+
+        const output = await context.read('output.json')
+        expect(JSON.parse(output)).toEqual({
+          users: [
+            { id: 1, name: 'Alice', email: 'alice@mail', role: 'admin', age: 32, flags: 12, scores: [10, 11, 12] },
+            { id: 2, name: 'Bob', email: 'bob@mail', role: 'user', age: 27, flags: 4, scores: [7, 9] },
+          ],
+          orders: [
+            { id: 101, userId: 1, total: 129.9, status: 'paid', items: [4, 3, 1] },
+            { id: 102, userId: 2, total: 39.9, status: 'pending', items: [2, 2] },
+            { id: 103, userId: 3, total: 560, status: 'paid', items: [10, 20, 30] },
+            { id: 104, userId: 5, total: 79.99, status: 'shipped', items: [1] },
+          ],
+        })
+      }
+      finally {
+        await context.cleanup()
+      }
+    })
   })
 
   describe('stdin edge cases', () => {

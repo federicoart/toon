@@ -89,6 +89,18 @@ describe('record layout', () => {
     ].join('\n'))
   })
 
+  it('quotes record string values that would collide with delimiters', () => {
+    const data = {
+      logs: [
+        { id: 'evt-1', message: 'hello, world', tags: ['alpha', 'beta'] },
+      ],
+    }
+
+    const result = encode(data, { layout: 'record', delimiter: '|' })
+
+    expect(result).toBe('logs::id:evt-1;message:"hello, world";tags:alpha|beta')
+  })
+
   it('falls back to the standard layout when rows contain nested objects', () => {
     const data = {
       groups: [
