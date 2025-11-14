@@ -11,6 +11,7 @@ import primitives from '@toon-format/spec/tests/fixtures/encode/primitives.json'
 import whitespace from '@toon-format/spec/tests/fixtures/encode/whitespace.json'
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_DELIMITER, encode } from '../src/index'
+import { complexRecordJson, complexRecordLines } from './record.fixtures'
 
 const fixtureFiles = [
   primitives,
@@ -144,6 +145,16 @@ describe('record layout', () => {
       'users::id:1;name:Alice;settings.theme:dark;settings.notifications.email:true;settings.notifications.push:false;tags:alpha|beta',
       'users::id:2;name:Bob;settings.theme:light;settings.notifications.email:false;settings.notifications.push:true;tags:gamma',
     ].join('\n'))
+  })
+
+  it('serializes a large mixed dataset into compact records', () => {
+    const result = encode(complexRecordJson, {
+      layout: 'record',
+      keyFolding: 'safe',
+      delimiter: '|',
+    })
+
+    expect(result).toBe(complexRecordLines)
   })
 })
 

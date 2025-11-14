@@ -14,6 +14,7 @@ import validationErrors from '@toon-format/spec/tests/fixtures/decode/validation
 import whitespace from '@toon-format/spec/tests/fixtures/decode/whitespace.json'
 import { describe, expect, it } from 'vitest'
 import { decode } from '../src/index'
+import { complexRecordJson, complexRecordLines } from './record.fixtures'
 
 const fixtureFiles = [
   primitives,
@@ -117,5 +118,9 @@ describe('record layout decoding', () => {
         },
       ],
     })
+  })
+
+  it('round-trips the large mixed dataset back to JSON', () => {
+    expect(decode(complexRecordLines)).toEqual(complexRecordJson)
   })
 })
