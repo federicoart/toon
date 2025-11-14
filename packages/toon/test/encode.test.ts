@@ -43,11 +43,90 @@ for (const fixtures of fixtureFiles) {
   })
 }
 
+describe('auto delimiter selection', () => {
+  it('prefers delimiter that avoids quoting for inline arrays', () => {
+    const result = encode({
+      tags: ['foo,bar', 'baz'],
+    }, { delimiter: 'auto' })
+
+    expect(result).toBe('tags[2	]: foo,bar	baz')
+  })
+
+  it('prefers delimiter that avoids quoting for tabular arrays', () => {
+    const result = encode({
+      rows: [
+        { name: 'Alice, Bob', id: 1 },
+        { name: 'Charlie', id: 2 },
+      ],
+    }, { delimiter: 'auto' })
+
+    expect(result).toBe([
+      'rows[2	]{name	id}:',
+      '  Alice, Bob	1',
+      '  Charlie	2',
+    ].join('\n'))
+  })
+})
+
+describe('record layout', () => {
+  it('serializes uniform object arrays as compact records', () => {
+    const data = {
+      users: [
+        { id: 1, name: 'Alice', email: 'alice@mail', role: 'admin', age: 32, flags: 12, scores: [10, 11, 12] },
+        { id: 2, name: 'Bob', email: 'bob@mail', role: 'user', age: 27, flags: 4, scores: [7, 9] },
+      ],
+      orders: [
+        { id: 101, userId: 1, total: 129.9, status: 'paid', items: [4, 3, 1] },
+      ],
+    }
+
+    const result = encode(data, { layout: 'record', delimiter: '|' })
+
+    expect(result).toBe([
+      'users::id:1;name:Alice;email:alice@mail;role:admin;age:32;flags:12;scores:10|11|12',
+      'users::id:2;name:Bob;email:bob@mail;role:user;age:27;flags:4;scores:7|9',
+      'orders::id:101;userId:1;total:129.9;status:paid;items:4|3|1',
+    ].join('\n'))
+  })
+
+  it('falls back to the standard layout when rows contain nested objects', () => {
+    const data = {
+      groups: [
+        { id: 1, meta: { active: true } },
+      ],
+    }
+
+    const standard = encode(data)
+    const recordAttempt = encode(data, { layout: 'record' })
+
+    expect(recordAttempt).toBe(standard)
+  })
+})
+
 function resolveEncodeOptions(options?: TestCase['options']): ResolvedEncodeOptions {
+  const indent = options?.indent ?? 2
+  const keyFolding = options?.keyFolding ?? 'off'
+  const flattenDepth = options?.flattenDepth ?? Number.POSITIVE_INFINITY
+  const delimiterOption = options?.delimiter ?? DEFAULT_DELIMITER
+  const layout = options?.layout ?? 'standard'
+
+  if (delimiterOption === 'auto') {
+    return {
+      indent,
+      delimiter: DEFAULT_DELIMITER,
+      delimiterStrategy: 'auto',
+      layout,
+      keyFolding,
+      flattenDepth,
+    }
+  }
+
   return {
-    indent: options?.indent ?? 2,
-    delimiter: options?.delimiter ?? DEFAULT_DELIMITER,
-    keyFolding: options?.keyFolding ?? 'off',
-    flattenDepth: options?.flattenDepth ?? Number.POSITIVE_INFINITY,
+    indent,
+    delimiter: delimiterOption,
+    delimiterStrategy: 'fixed',
+    layout,
+    keyFolding,
+    flattenDepth,
   }
 }

@@ -118,6 +118,36 @@ describe('toon CLI', () => {
         await context.cleanup()
       }
     })
+
+    it('supports record layout for uniform object arrays', async () => {
+      const data = {
+        users: [
+          { id: 1, name: 'Alice', email: 'alice@mail', role: 'admin', age: 32, flags: 12, scores: [10, 11, 12] },
+          { id: 2, name: 'Bob', email: 'bob@mail', role: 'user', age: 27, flags: 4, scores: [7, 9] },
+        ],
+        orders: [
+          { id: 101, userId: 1, total: 129.9, status: 'paid', items: [4, 3, 1] },
+        ],
+      }
+
+      const context = await createCliTestContext({
+        'input.json': JSON.stringify(data),
+      })
+
+      try {
+        await context.run(['input.json', '--output', 'output.toon', '--layout', 'record', '--delimiter', '|'])
+
+        const output = await context.read('output.toon')
+        expect(output).toBe([
+          'users::id:1;name:Alice;email:alice@mail;role:admin;age:32;flags:12;scores:10|11|12',
+          'users::id:2;name:Bob;email:bob@mail;role:user;age:27;flags:4;scores:7|9',
+          'orders::id:101;userId:1;total:129.9;status:paid;items:4|3|1',
+        ].join('\n'))
+      }
+      finally {
+        await context.cleanup()
+      }
+    })
   })
 
   describe('decode (TOON → JSON)', () => {

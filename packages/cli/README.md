@@ -60,7 +60,8 @@ cat data.toon | toon --decode
 | `-o, --output <file>` | Output file path (prints to stdout if omitted) |
 | `-e, --encode` | Force encode mode (overrides auto-detection) |
 | `-d, --decode` | Force decode mode (overrides auto-detection) |
-| `--delimiter <char>` | Array delimiter: `,` (comma), `\t` (tab), `\|` (pipe) |
+| `--delimiter <char>` | Array delimiter: `,` (comma), `\t` (tab), `\|` (pipe), or `auto` |
+| `--layout <mode>` | Layout mode: `standard` (default) or `record` for ultra-compact records |
 | `--indent <number>` | Indentation size (default: `2`) |
 | `--stats` | Show token count estimates and savings (encode only) |
 | `--no-strict` | Disable strict validation when decoding |
@@ -94,11 +95,35 @@ Example output:
 toon data.json --delimiter "\t" -o output.toon
 ```
 
+#### Auto-select delimiter
+
+```bash
+# Let TOON choose the delimiter that avoids extra quoting
+toon data.json --delimiter auto -o output.toon
+```
+
 #### Pipe-separated with length markers
 
 ```bash
 toon data.json --delimiter "|" --length-marker -o output.toon
 ```
+
+### Record Layout (Since v1.x)
+
+Emit single-line records for uniform object arrays to minimize token usage:
+
+```bash
+toon data.json --layout record --delimiter "|" -o output.toon
+```
+
+Example output for a `users` array:
+
+```
+users::id:1;name:Alice;email:alice@mail;role:admin;age:32;flags:12;scores:10|11|12
+users::id:2;name:Bob;email:bob@mail;role:user;age:27;flags:4;scores:7|9
+```
+
+Record layout automatically falls back to the standard format when rows contain complex nested structures that cannot be flattened without loss.
 
 ### Lenient Decoding
 

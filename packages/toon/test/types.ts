@@ -17,6 +17,7 @@ export interface TestCase {
     keyFolding?: 'off' | 'safe'
     flattenDepth?: number
     expandPaths?: 'off' | 'safe'
+    layout?: 'standard' | 'record'
   }
   specSection?: string
   note?: string

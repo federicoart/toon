@@ -36,6 +36,11 @@ export const mainCommand: CommandDef<{
     description: string
     default: string
   }
+  layout: {
+    type: 'string'
+    description: string
+    default: string
+  }
   indent: {
     type: 'string'
     description: string
@@ -94,8 +99,13 @@ export const mainCommand: CommandDef<{
     },
     delimiter: {
       type: 'string',
-      description: 'Delimiter for arrays: comma (,), tab (\\t), or pipe (|)',
+      description: 'Delimiter for arrays: comma (,), tab (\\t), pipe (|), or auto',
       default: ',',
+    },
+    layout: {
+      type: 'string',
+      description: 'Layout mode: standard (default) or record',
+      default: 'standard',
     },
     indent: {
       type: 'string',
@@ -142,9 +152,18 @@ export const mainCommand: CommandDef<{
     }
 
     // Validate delimiter
-    const delimiter = args.delimiter || DEFAULT_DELIMITER
-    if (!(Object.values(DELIMITERS)).includes(delimiter as Delimiter)) {
-      throw new Error(`Invalid delimiter "${delimiter}". Valid delimiters are: comma (,), tab (\\t), pipe (|)`)
+    const delimiterInput = args.delimiter || DEFAULT_DELIMITER
+    const delimiterValues = Object.values(DELIMITERS)
+    if (delimiterInput !== 'auto' && !delimiterValues.includes(delimiterInput as Delimiter)) {
+      throw new Error(`Invalid delimiter "${delimiterInput}". Valid delimiters are: comma (,), tab (\\t), pipe (|), auto`)
+    }
+    const delimiterOption = (delimiterInput === 'auto'
+      ? 'auto'
+      : delimiterInput) as NonNullable<EncodeOptions['delimiter']>
+
+    const layout = args.layout || 'standard'
+    if (layout !== 'standard' && layout !== 'record') {
+      throw new Error(`Invalid layout value "${layout}". Valid values are: standard, record`)
     }
 
     // Validate `keyFolding`
@@ -175,7 +194,8 @@ export const mainCommand: CommandDef<{
         await encodeToToon({
           input: inputSource,
           output: outputPath,
-          delimiter: delimiter as Delimiter,
+          delimiter: delimiterOption,
+          layout: layout as NonNullable<EncodeOptions['layout']>,
           indent,
           keyFolding: keyFolding as NonNullable<EncodeOptions['keyFolding']>,
           flattenDepth,

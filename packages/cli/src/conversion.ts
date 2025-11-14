@@ -13,6 +13,7 @@ export async function encodeToToon(config: {
   output?: string
   indent: NonNullable<EncodeOptions['indent']>
   delimiter: NonNullable<EncodeOptions['delimiter']>
+  layout: NonNullable<EncodeOptions['layout']>
   keyFolding?: NonNullable<EncodeOptions['keyFolding']>
   flattenDepth?: number
   printStats: boolean
@@ -30,6 +31,7 @@ export async function encodeToToon(config: {
   const encodeOptions: EncodeOptions = {
     delimiter: config.delimiter,
     indent: config.indent,
+    layout: config.layout,
     keyFolding: config.keyFolding,
     flattenDepth: config.flattenDepth,
   }

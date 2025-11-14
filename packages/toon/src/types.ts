@@ -11,6 +11,8 @@ export type JsonValue = JsonPrimitive | JsonObject | JsonArray
 
 // #region Encoder options
 
+export type DelimiterOption = Delimiter | 'auto'
+
 export type { Delimiter, DelimiterKey }
 
 export interface EncodeOptions {
@@ -23,7 +25,14 @@ export interface EncodeOptions {
    * Delimiter to use for tabular array rows and inline primitive arrays.
    * @default DELIMITERS.comma
    */
-  delimiter?: Delimiter
+  delimiter?: DelimiterOption
+  /**
+   * Layout strategy for arrays and objects.
+   * - `standard` preserves the classic TOON block and tabular layouts.
+   * - `record` emits ultra-compact record lines for uniform object arrays.
+   * @default 'standard'
+   */
+  layout?: 'standard' | 'record'
   /**
    * Enable key folding to collapse single-key wrapper chains.
    * When set to 'safe', nested objects with single keys are collapsed into dotted paths
@@ -40,7 +49,14 @@ export interface EncodeOptions {
   flattenDepth?: number
 }
 
-export type ResolvedEncodeOptions = Readonly<Required<EncodeOptions>>
+export interface ResolvedEncodeOptions {
+  readonly indent: number
+  readonly delimiter: Delimiter
+  readonly delimiterStrategy: 'fixed' | 'auto'
+  readonly layout: 'standard' | 'record'
+  readonly keyFolding: 'off' | 'safe'
+  readonly flattenDepth: number
+}
 
 // #endregion
 
