@@ -10,6 +10,16 @@ import { name, version } from '../package.json' with { type: 'json' }
 import { decodeToJson, encodeToToon } from './conversion'
 import { detectMode } from './utils'
 
+function readStringOption(args: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = args[key]
+    if (typeof value === 'string' && value.length > 0)
+      return value
+  }
+
+  return undefined
+}
+
 export const mainCommand: CommandDef<{
   input: {
     type: 'positional'
@@ -138,7 +148,8 @@ export const mainCommand: CommandDef<{
     },
   },
   async run({ args }) {
-    const input = args.input
+    const argsRecord = args as Record<string, unknown>
+    const input = args.input ?? (argsRecord['input'] as string | undefined)
 
     const inputSource: InputSource = !input || input === '-'
       ? { type: 'stdin' }
@@ -152,7 +163,7 @@ export const mainCommand: CommandDef<{
     }
 
     // Validate delimiter
-    const delimiterInput = args.delimiter || DEFAULT_DELIMITER
+    const delimiterInput = readStringOption(argsRecord, 'delimiter') ?? DEFAULT_DELIMITER
     const delimiterValues = Object.values(DELIMITERS)
     if (delimiterInput !== 'auto' && !delimiterValues.includes(delimiterInput as Delimiter)) {
       throw new Error(`Invalid delimiter "${delimiterInput}". Valid delimiters are: comma (,), tab (\\t), pipe (|), auto`)
@@ -161,28 +172,29 @@ export const mainCommand: CommandDef<{
       ? 'auto'
       : delimiterInput) as NonNullable<EncodeOptions['delimiter']>
 
-    const layout = args.layout || 'standard'
+    const layout = readStringOption(argsRecord, 'layout') ?? 'standard'
     if (layout !== 'standard' && layout !== 'record') {
       throw new Error(`Invalid layout value "${layout}". Valid values are: standard, record`)
     }
 
     // Validate `keyFolding`
-    const keyFolding = args.keyFolding || 'off'
+    const keyFolding = readStringOption(argsRecord, 'key-folding', 'keyFolding') ?? 'off'
     if (keyFolding !== 'off' && keyFolding !== 'safe') {
       throw new Error(`Invalid keyFolding value "${keyFolding}". Valid values are: off, safe`)
     }
 
     // Parse and validate `flattenDepth`
     let flattenDepth: number | undefined
-    if (args.flattenDepth !== undefined) {
-      flattenDepth = Number.parseInt(args.flattenDepth, 10)
+    const flattenDepthInput = readStringOption(argsRecord, 'flatten-depth', 'flattenDepth')
+    if (flattenDepthInput !== undefined) {
+      flattenDepth = Number.parseInt(flattenDepthInput, 10)
       if (Number.isNaN(flattenDepth) || flattenDepth < 0) {
-        throw new Error(`Invalid flattenDepth value: ${args.flattenDepth}`)
+        throw new Error(`Invalid flattenDepth value: ${flattenDepthInput}`)
       }
     }
 
     // Validate `expandPaths`
-    const expandPaths = args.expandPaths || 'off'
+    const expandPaths = readStringOption(argsRecord, 'expand-paths', 'expandPaths') ?? 'off'
     if (expandPaths !== 'off' && expandPaths !== 'safe') {
       throw new Error(`Invalid expandPaths value "${expandPaths}". Valid values are: off, safe`)
     }

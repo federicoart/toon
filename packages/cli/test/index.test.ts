@@ -148,6 +148,48 @@ describe('toon CLI', () => {
         await context.cleanup()
       }
     })
+
+    it('flattens nested objects when record layout is combined with safe key folding', async () => {
+      const data = {
+        users: [
+          {
+            id: 1,
+            name: 'Alice',
+            settings: {
+              theme: 'dark',
+              notifications: { email: true, push: false },
+            },
+            tags: ['alpha', 'beta'],
+          },
+        ],
+      }
+
+      const context = await createCliTestContext({
+        'input.json': JSON.stringify(data),
+      })
+
+      try {
+        await context.run([
+          'input.json',
+          '--output',
+          'output.toon',
+          '--layout',
+          'record',
+          '--key-folding',
+          'safe',
+          '--delimiter',
+          '|',
+        ])
+
+        const output = await context.read('output.toon')
+        expect(output).toBe([
+          'users::id:1;name:Alice;settings.theme:dark;settings.notifications.email:true;settings.notifications.push:false;tags:alpha|beta',
+        ].join('\n'))
+      }
+      finally {
+        await context.cleanup()
+      }
+    })
   })
 
   describe('decode (TOON → JSON)', () => {
@@ -246,6 +288,44 @@ describe('toon CLI', () => {
             { id: 102, userId: 2, total: 39.9, status: 'pending', items: [2, 2] },
             { id: 103, userId: 3, total: 560, status: 'paid', items: [10, 20, 30] },
             { id: 104, userId: 5, total: 79.99, status: 'shipped', items: [1] },
+          ],
+        })
+      }
+      finally {
+        await context.cleanup()
+      }
+    })
+
+    it('decodes flattened record keys with path expansion', async () => {
+      const toonInput = [
+        'users::id:1;settings.theme:dark;settings.notifications.email:true;settings.notifications.push:false;tags:alpha|beta',
+      ].join('\n')
+
+      const context = await createCliTestContext({
+        'input.toon': toonInput,
+      })
+
+      try {
+        await context.run([
+          'input.toon',
+          '--decode',
+          '--output',
+          'output.json',
+          '--expand-paths',
+          'safe',
+        ])
+
+        const output = await context.read('output.json')
+        expect(JSON.parse(output)).toEqual({
+          users: [
+            {
+              id: 1,
+              settings: {
+                theme: 'dark',
+                notifications: { email: true, push: false },
+              },
+              tags: ['alpha', 'beta'],
+            },
           ],
         })
       }

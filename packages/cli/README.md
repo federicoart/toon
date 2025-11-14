@@ -127,6 +127,18 @@ Record layout automatically falls back to the standard format when rows contain 
 
 The CLI (and core library) detect this layout during decoding, rebuilding the original arrays of objects with proper primitive and inline array values—no special flags required when running `toon --decode`.
 
+Need to crush deeper nesting? Combine record layout with safe key folding to flatten wrapper objects into dotted columns:
+
+```bash
+toon data.json --layout record --key-folding safe --delimiter "|" -o output.toon
+```
+
+Decode with path expansion to restore the original hierarchy:
+
+```bash
+toon output.toon --decode --expand-paths safe -o round-trip.json
+```
+
 ### Lenient Decoding
 
 Skip validation for faster processing:

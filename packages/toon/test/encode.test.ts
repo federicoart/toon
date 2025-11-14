@@ -113,6 +113,38 @@ describe('record layout', () => {
 
     expect(recordAttempt).toBe(standard)
   })
+
+  it('flattens nested objects into dotted keys when key folding is safe', () => {
+    const data = {
+      users: [
+        {
+          id: 1,
+          name: 'Alice',
+          settings: {
+            theme: 'dark',
+            notifications: { email: true, push: false },
+          },
+          tags: ['alpha', 'beta'],
+        },
+        {
+          id: 2,
+          name: 'Bob',
+          settings: {
+            theme: 'light',
+            notifications: { email: false, push: true },
+          },
+          tags: ['gamma'],
+        },
+      ],
+    }
+
+    const result = encode(data, { layout: 'record', keyFolding: 'safe', delimiter: '|' })
+
+    expect(result).toBe([
+      'users::id:1;name:Alice;settings.theme:dark;settings.notifications.email:true;settings.notifications.push:false;tags:alpha|beta',
+      'users::id:2;name:Bob;settings.theme:light;settings.notifications.email:false;settings.notifications.push:true;tags:gamma',
+    ].join('\n'))
+  })
 })
 
 function resolveEncodeOptions(options?: TestCase['options']): ResolvedEncodeOptions {

@@ -4,6 +4,7 @@ import { tryFoldKeyChain } from './folding'
 import { isArrayOfArrays, isArrayOfObjects, isArrayOfPrimitives, isEmptyObject, isJsonArray, isJsonObject, isJsonPrimitive } from './normalize'
 import { encodeAndJoinPrimitives, encodeKey, encodePrimitive, encodeStringLiteral, formatHeader } from './primitives'
 import { LineWriter } from './writer'
+import { isIdentifierSegment } from '../shared/validation'
 
 // #region Encode normalized JsonValue
 
@@ -119,10 +120,10 @@ export function encodeArray(
   }
 
   if (options.layout === 'record' && key && isArrayOfObjects(value)) {
-    const recordHeader = extractRecordHeader(value)
+    const recordShape = prepareRecordShape(value, options)
 
-    if (recordHeader) {
-      encodeArrayOfObjectsAsRecords(key, value, recordHeader, writer, depth, options)
+    if (recordShape) {
+      encodeArrayOfObjectsAsRecords(key, recordShape.rows, recordShape.header, writer, depth, options)
       return
     }
   }
@@ -278,17 +279,30 @@ function encodeArrayOfObjectsAsRecords(
   }
 }
 
-function extractRecordHeader(rows: readonly JsonObject[]): string[] | undefined {
+function prepareRecordShape(rows: readonly JsonObject[], options: ResolvedEncodeOptions): { header: string[], rows: JsonObject[] } | undefined {
   if (rows.length === 0)
     return
 
-  const firstRow = rows[0]!
+  const preparedRows: JsonObject[] = []
+
+  for (const row of rows) {
+    const prepared = options.keyFolding === 'safe'
+      ? flattenRecordRow(row, options)
+      : row
+
+    if (!prepared)
+      return
+
+    preparedRows.push(prepared)
+  }
+
+  const firstRow = preparedRows[0]!
   const header = Object.keys(firstRow)
 
   if (header.length === 0)
     return
 
-  for (const row of rows) {
+  for (const row of preparedRows) {
     const keys = Object.keys(row)
 
     if (keys.length !== header.length)
@@ -303,7 +317,7 @@ function extractRecordHeader(rows: readonly JsonObject[]): string[] | undefined 
     }
   }
 
-  return header
+  return { header, rows: preparedRows }
 }
 
 function isRecordFriendlyValue(value: JsonValue | undefined): boolean {
@@ -353,6 +367,58 @@ function encodeRecordPrimitive(value: JsonPrimitive, options: ResolvedEncodeOpti
 }
 
 // #endregion
+
+function flattenRecordRow(row: JsonObject, options: ResolvedEncodeOptions): JsonObject | undefined {
+  const flattened: JsonObject = {}
+
+  for (const [key, value] of Object.entries(row)) {
+    if (!insertRecordField(flattened, key, value, options, key.split(DOT).length))
+      return undefined
+  }
+
+  return flattened
+}
+
+function insertRecordField(
+  target: JsonObject,
+  key: string,
+  value: JsonValue,
+  options: ResolvedEncodeOptions,
+  segmentCount: number,
+): boolean {
+  if (isRecordFriendlyValue(value)) {
+    if (Object.prototype.hasOwnProperty.call(target, key))
+      return false
+
+    target[key] = value
+    return true
+  }
+
+  if (!isJsonObject(value))
+    return false
+
+  const nextSegmentCount = segmentCount + 1
+
+  if (Number.isFinite(options.flattenDepth) && nextSegmentCount > options.flattenDepth)
+    return false
+
+  const entries = Object.entries(value)
+
+  if (entries.length === 0)
+    return false
+
+  for (const [childKey, childValue] of entries) {
+    if (!isIdentifierSegment(childKey))
+      return false
+
+    const combinedKey = `${key}${DOT}${childKey}`
+
+    if (!insertRecordField(target, combinedKey, childValue, options, nextSegmentCount))
+      return false
+  }
+
+  return true
+}
 
 function writeTabularRows(
   rows: readonly JsonObject[],

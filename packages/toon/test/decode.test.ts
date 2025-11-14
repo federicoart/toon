@@ -90,4 +90,32 @@ describe('record layout decoding', () => {
       ],
     })
   })
+
+  it('expands dotted record keys back into nested objects when requested', () => {
+    const input = [
+      'users::id:1;settings.theme:dark;settings.notifications.email:true;settings.notifications.push:false;tags:alpha|beta',
+      'users::id:2;settings.theme:light;settings.notifications.email:false;settings.notifications.push:true;tags:gamma',
+    ].join('\n')
+
+    expect(decode(input, { expandPaths: 'safe' })).toEqual({
+      users: [
+        {
+          id: 1,
+          settings: {
+            theme: 'dark',
+            notifications: { email: true, push: false },
+          },
+          tags: ['alpha', 'beta'],
+        },
+        {
+          id: 2,
+          settings: {
+            theme: 'light',
+            notifications: { email: false, push: true },
+          },
+          tags: ['gamma'],
+        },
+      ],
+    })
+  })
 })
